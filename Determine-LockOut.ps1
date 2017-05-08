@@ -1,4 +1,3 @@
-#Requires -Version 3.0
 <#
 .SYNOPSIS
     Get-LockedOutUser.ps1 returns a list of users who were locked out in Active Directory.
@@ -19,27 +18,34 @@
   Creation Date:  21-02-2017
   Purpose/Change: Initial script development
 .EXAMPLE
-    Get-LockedOutUser.ps1
+    .\Determine-AccountLockouts.ps1 -DCs "SRVADC11","SRVADC12" -NumberOfDays 5
 #>
-
-#---------------------------------------------------------[Initialisations]--------------------------------------------------------
-#Set Error Action to Silently Continue
-$ErrorActionPreference = 'SilentlyContinue'
-#----------------------------------------------------------[Declarations]----------------------------------------------------------
-$UserArray = @()
-[string]$DomainName = $env:USERDOMAIN
-[string]$UserName = "*"
-[datetime]$StartTime = (Get-Date).AddDays(-5)
 #-----------------------------------------------------------[Execution]------------------------------------------------------------
+Param(
+    [Parameter(Mandatory=$True)] # List domain controllers that need to be investigated
+    [array]$DCs, # "SRVADC11","SRVADC12"
 
-Get-WinEvent -FilterHashtable @{LogName='Security';Id=4740;StartTime=$StartTime} |
-Where-Object {$_.Properties[0].Value -like "$UserName"} |
-ForEach $PSITEM {
-    $UserArray += New-Object -TypeName PSObject -Property @{ # Fill Array with custom objects
-        'TimeCreated' = $($_.TimeCreated)
-        'UserName' = $($_.Properties[0].Value)
-        'ClientName' = $($_.Properties[1].Value)
-    } # End PS Object
-} # End ForEach
+    [Parameter(Mandatory=$True)] # Enter the number of days to search for. (5 for searching logs for events of the last five days)
+    [int]$NumberOfDays # 5
+)
 
-Write-output $UserArray | Sort-Object TimeCreated | Select-Object TimeCreated, UserName, ClientName
+$EventArray = @()
+[datetime]$Today = (Get-Date)    
+[datetime]$StartTime = (Get-Date).AddDays(-$NumberOfDays)
+
+    # Cycle through each domain controller and get all eventlogs in an array
+    ForEach ($DC in $DCs) {
+	    Write-Output "Getting security events for Domain Controller [$DC].."
+        $events = Get-WinEvent -FilterHashtable @{LogName='Security';Id = 4740;StartTime=$StartTime} -ComputerName $DC
+        ForEach ($event in $events) {
+            $EventArray += New-Object -TypeName PSObject -Property @{ # Fill Array with custom objects
+                'TimeCreated' = $($Event.TimeCreated)
+                'UserName' = $($Event.Properties[0].Value)
+                'ClientName' = $($Event.Properties[1].Value)
+            } # End PS Object
+        } # End ForEach
+        $events = $null
+    }
+    Write-Output "Display all Locked events from [$StartTime] to [$Today].."
+    $EventArray | Sort-Object TimeCreated | Select-Object TimeCreated, UserName, ClientName
+# Determine-LockoutFunction -DCs "SRVADC11,SRVADC12" -Username * -History $NumberOfDays
